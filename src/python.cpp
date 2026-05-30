@@ -121,28 +121,29 @@ Bytes bytesFromPy(const py::object& obj) {
 // default chain in Python tests and as a simple persistent backing store.
 class MockChain : public StateProvider {
 public:
-	MockChain() = default;
+	MockChain() : accounts(16), code(16), storage(16) {}
 
 	EthereumAccountInfo getAccountInfo(const EthereumAddress& address, uint64_t /*blockNumber*/ = 0) override {
-		EthereumAccountInfo* found = accounts.get(address);
+		EthereumAccountInfo* found = accounts.getPtr(address);
 		if (found)
 			return *found;
 		return EthereumAccountInfo();
 	}
 
 	Bytes getContractCode(const EthereumAddress& address) override {
-		Bytes* found = code.get(address);
+		Bytes* found = code.getPtr(address);
 		return found ? *found : Bytes();
 	}
 
 	ArrayList<uint256_t> getStorageSlots(const EthereumAddress& address,
 			const ArrayList<LongKey<256>>& slotKeys, uint64_t /*blockNumber*/ = 0) override {
 		ArrayList<uint256_t> result;
-		HashMap<LongKey<256>, uint256_t>* slots = storage.get(address);
-		for (uint32_t i = 0; i < slotKeys.size(); ++i) {
+		HashMap<LongKey<256>, uint256_t>** existing = storage.getPtr(address);
+		HashMap<LongKey<256>, uint256_t>* slots = existing ? *existing : nullptr;
+		for (int i = 0; i < slotKeys.size(); ++i) {
 			uint256_t value;
 			if (slots) {
-				uint256_t* found = slots->get(slotKeys.get(i));
+				uint256_t* found = slots->getPtr(slotKeys.get(i));
 				if (found)
 					value = *found;
 			}
@@ -163,16 +164,14 @@ public:
 
 	bool updateStorageSlots(const EthereumAddress& key,
 			const HashMap<LongKey<256>, uint256_t>& entries) override {
-		HashMap<LongKey<256>, uint256_t>* slots = storage.get(key);
+		HashMap<LongKey<256>, uint256_t>** existing = storage.getPtr(key);
+		HashMap<LongKey<256>, uint256_t>* slots = existing ? *existing : nullptr;
 		if (!slots) {
-			storage.put(key, HashMap<LongKey<256>, uint256_t>());
-			slots = storage.get(key);
+			slots = new HashMap<LongKey<256>, uint256_t>(16);
+			storage.put(key, slots);
 		}
-		// Iterate over a copy via the standard public API of libexcessive.
-		for (typename HashMap<LongKey<256>, uint256_t>::Iterator it = entries.begin();
-				it != entries.end(); ++it) {
-			slots->put(it.key(), it.value());
-		}
+		for (MapElement<LongKey<256>, uint256_t> e : entries)
+			slots->put(e.key, e.value);
 		return true;
 	}
 
@@ -189,7 +188,7 @@ public:
 private:
 	HashMap<EthereumAddress, EthereumAccountInfo> accounts;
 	HashMap<EthereumAddress, Bytes> code;
-	HashMap<EthereumAddress, HashMap<LongKey<256>, uint256_t>> storage;
+	HashMap<EthereumAddress, HashMap<LongKey<256>, uint256_t>*> storage;
 };
 
 // Trampoline that lets Python subclasses implement StateProvider.
@@ -239,7 +238,7 @@ struct SimulationResult {
 };
 
 SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
-	EVMSimulationOutput out = evm.simulate(tx, block);
+	EVMSimulationOutput out = evm.simulate(tx, block, nullptr);
 	SimulationResult result;
 	result.success = out.success;
 	result.returnData = py::bytes(reinterpret_cast<const char*>(out.returnDataPtr), out.returnDataSize);
@@ -406,9 +405,12 @@ PYBIND11_MODULE(_komozoievm, m) {
 
 	py::class_<StateProvider, PyStateProvider>(m, "StateProvider")
 		.def(py::init<>())
-		.def("get_account_info", &StateProvider::getAccountInfo,
+		.def("get_account_info",
+			static_cast<EthereumAccountInfo (StateProvider::*)(const EthereumAddress&, uint64_t)>(&StateProvider::getAccountInfo),
 			py::arg("address"), py::arg("block_number") = 0)
-		.def("get_contract_code", &StateProvider::getContractCode, py::arg("address"))
+		.def("get_contract_code",
+			static_cast<Bytes (StateProvider::*)(const EthereumAddress&)>(&StateProvider::getContractCode),
+			py::arg("address"))
 		.def("update_account", &StateProvider::updateAccount, py::arg("address"), py::arg("info"))
 		.def("save_contract_code", &StateProvider::saveContractCode, py::arg("address"), py::arg("code"));
 

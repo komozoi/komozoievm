@@ -3,6 +3,10 @@ project(komozoievm)
 
 include(FetchContent)
 
+# Position-independent code is required so the static libraries we build can be
+# linked into the shared Python module.  Set it before any subprojects compile.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 FetchContent_Declare(
         excessive
         GIT_REPOSITORY https://gitea.com/komozoi/excessive.git
@@ -25,6 +29,13 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 include_directories(src)
 include_directories(src/include)
 
+# Build options are declared up front so they show up in the IDE regardless of
+# build configuration.  The Python bindings are built by default; turn them off
+# with -DBUILD_PYTHON_BINDINGS=OFF if Python or pybind11 isn't available.
+option(BUILD_PYTHON_BINDINGS "Build the komozoievm Python extension module" ON)
+option(BUILD_CXX_TESTS "Build the native C++ test executable" ON)
+
+
 file(GLOB SOURCES
         "src/crypto/*.cpp"
         "src/ethereum/*.cpp"
@@ -38,13 +49,8 @@ file(GLOB SOURCES
 add_library(komozoievm ${SOURCES})
 target_link_libraries(komozoievm PRIVATE excessive)
 
-# Python bindings (built only when explicitly enabled, e.g. by scikit-build-core).
-option(BUILD_PYTHON_BINDINGS "Build the komozoievm Python extension module" OFF)
-option(BUILD_CXX_TESTS "Build the native C++ test executable" ON)
-
+# Python bindings.
 if(BUILD_PYTHON_BINDINGS)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
     # pybind11 is fetched at configure time so source builds work without a
     # pre-installed copy.  Wheel builds via scikit-build-core still satisfy the
     # dependency from the build environment when available.
