@@ -39,10 +39,10 @@ BUILD_CXX_TESTS = "OFF"
 
 [tool.cibuildwheel]
 build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
-skip = ["*-musllinux_i686", "*-win32", "pp*"]
+skip = ["*-musllinux_*", "*-win32", "pp*"]
 test-requires = ["pytest"]
 test-command = "pytest {project}/python/tests"
 build-verbosity = 1
 
 [tool.cibuildwheel.linux]
-archs = ["x86_64", "aarch64"]
+archs = ["x86_64"]

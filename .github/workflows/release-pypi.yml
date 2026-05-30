@@ -41,16 +41,9 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             artifact_name: linux-x86_64
-          - os: ubuntu-latest
-            arch: aarch64
-            artifact_name: linux-aarch64
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v3
 
       - name: Build wheels with cibuildwheel
         uses: pypa/cibuildwheel@v2.21.3
