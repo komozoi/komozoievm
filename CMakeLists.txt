@@ -38,6 +38,48 @@ file(GLOB SOURCES
 add_library(komozoievm ${SOURCES})
 target_link_libraries(komozoievm PRIVATE excessive)
 
+# Python bindings (built only when explicitly enabled, e.g. by scikit-build-core).
+option(BUILD_PYTHON_BINDINGS "Build the komozoievm Python extension module" OFF)
+option(BUILD_CXX_TESTS "Build the native C++ test executable" ON)
+
+if(BUILD_PYTHON_BINDINGS)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+    # pybind11 is fetched at configure time so source builds work without a
+    # pre-installed copy.  Wheel builds via scikit-build-core still satisfy the
+    # dependency from the build environment when available.
+    find_package(pybind11 CONFIG QUIET)
+    if(NOT pybind11_FOUND)
+        FetchContent_Declare(
+                pybind11
+                GIT_REPOSITORY https://github.com/pybind/pybind11.git
+                GIT_TAG v2.13.6
+                GIT_SHALLOW TRUE
+                GIT_PROGRESS ON
+                SYSTEM
+        )
+        FetchContent_MakeAvailable(pybind11)
+    endif()
+
+    set(PYTHON_BINDING_SOURCES
+            src/python.cpp
+    )
+
+    pybind11_add_module(_komozoievm MODULE ${PYTHON_BINDING_SOURCES})
+    target_link_libraries(_komozoievm PRIVATE komozoievm excessive)
+    target_include_directories(_komozoievm PRIVATE src src/include)
+    target_compile_features(_komozoievm PRIVATE cxx_std_17)
+
+    # Install the compiled extension next to the Python package root so that
+    # `import komozoievm` works after a wheel install.
+    install(TARGETS _komozoievm LIBRARY DESTINATION komozoievm)
+    install(FILES python/komozoievm/__init__.py DESTINATION komozoievm)
+endif()
+
+if(NOT BUILD_CXX_TESTS)
+    return()
+endif()
+
 find_package(GTest)
 if(GTest_FOUND)
     include_directories(${GTEST_INCLUDE_DIRS})

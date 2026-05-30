@@ -1,0 +1,53 @@
+[build-system]
+requires = ["scikit-build-core>=0.8", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "komozoievm"
+version = "0.0.1"
+description = "Python bindings for the Komozoi EVM simulator"
+readme = "docs/python/README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Komozoi" }]
+keywords = ["ethereum", "evm", "blockchain", "simulator", "mev"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://gitea.com/komozoi/komozoievm"
+Documentation = "https://gitea.com/komozoi/komozoievm"
+Issues = "https://gitea.com/komozoi/komozoievm/issues"
+
+[tool.scikit-build]
+minimum-version = "0.8"
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["python/komozoievm"]
+wheel.expand-macos-universal-tags = true
+sdist.include = ["src", "python", "docs/python", "CMakeLists.txt", "cmake", "LICENSE"]
+
+[tool.scikit-build.cmake.define]
+BUILD_PYTHON_BINDINGS = "ON"
+BUILD_CXX_TESTS = "OFF"
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
+skip = ["*-musllinux_i686", "*-win32", "pp*"]
+test-requires = ["pytest"]
+test-command = "pytest {project}/python/tests"
+build-verbosity = 1
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "arm64"]
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
