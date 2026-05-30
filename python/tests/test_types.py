@@ -49,6 +49,24 @@ class TestAddress:
         zero: evm.Address = evm.Address("0x0000000000000000000000000000000000000000")
         assert bytes(zero) == b"\x00" * 20
 
+    def test_from_none(self) -> None:
+        assert bytes(evm.Address(None)) == b"\x00" * 20
+
+    def test_from_address_object(self) -> None:
+        addr1 = evm.Address(ADDRESS_HEX)
+        addr2 = evm.Address(addr1)
+        assert addr1 == addr2
+
+    def test_invalid_buffer_size(self) -> None:
+        with pytest.raises(ValueError, match="Address must be 20 bytes"):
+            evm.Address(b"\x00" * 19)
+        with pytest.raises(ValueError, match="Address must be 20 bytes"):
+            evm.Address(b"\x00" * 21)
+
+    def test_invalid_type(self) -> None:
+        with pytest.raises(TypeError):
+            evm.Address(123)
+
 
 class TestU256:
     @pytest.mark.parametrize("value", [
@@ -74,6 +92,11 @@ class TestU256:
 class TestBytes:
     def test_empty(self) -> None:
         b: evm.Bytes = evm.Bytes(b"")
+        assert len(b) == 0
+        assert bytes(b) == b""
+
+    def test_from_none(self) -> None:
+        b: evm.Bytes = evm.Bytes(None)
         assert len(b) == 0
         assert bytes(b) == b""
 

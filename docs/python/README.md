@@ -50,11 +50,11 @@ subject to change.
 
 ### Types
 
-| Python type | Description                                                                                                                                     |
-|-------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Address`   | 20-byte Ethereum address.  Accepts `bytes`, `bytearray`, or hex `str` (with or without `0x`).  `str(address)` returns the EIP-55 checksum form. |
-| `U256`      | 256-bit unsigned integer.  Implicitly converts from Python `int`; values out of range raise `OverflowError`.                                    |
-| `Bytes`     | Immutable byte buffer.  Interoperable with Python `bytes`/`bytearray`.                                                                          |
+| Python type | Description                                                                                                                                                                |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Address`   | 20-byte Ethereum address.  Accepts `bytes`, `bytearray`, hex `str` (with or without `0x`), `None`, or another `Address`.  `str(address)` returns the EIP-55 checksum form. |
+| `U256`      | 256-bit unsigned integer.  Implicitly converts from Python `int`; values out of range raise `OverflowError`.                                                               |
+| `Bytes`     | Immutable byte buffer.  Interoperable with Python `bytes`/`bytearray`, or `None`.                                                                                          |
 
 `Address` and `U256` are thin wrappers; functions that accept them also accept
 the plain Python equivalents (`bytes`, `str`, `int`).

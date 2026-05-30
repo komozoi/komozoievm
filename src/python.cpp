@@ -44,6 +44,12 @@ namespace {
 // Convert a Python-side 20-byte address (bytes or hex string) into the native
 // EthereumAddress type.  Hex strings may optionally carry the "0x" prefix.
 EthereumAddress addressFromPy(const py::object& obj) {
+	if (obj.is_none()) {
+		return EthereumAddress("0x0000000000000000000000000000000000000000");
+	}
+	if (py::isinstance<EthereumAddress>(obj)) {
+		return obj.cast<EthereumAddress>();
+	}
 	if (py::isinstance<py::str>(obj)) {
 		std::string s = obj.cast<std::string>();
 		return EthereumAddress(s.c_str());
