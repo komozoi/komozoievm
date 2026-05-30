@@ -32,24 +32,41 @@ jobs:
           path: dist/*.tar.gz
 
   build-wheels:
-    name: Build wheels (${{ matrix.os }})
+    name: Build wheels on ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            artifact_name: linux-x86_64
+          - os: ubuntu-latest
+            arch: aarch64
+            artifact_name: linux-aarch64
+          - os: macos-13
+            arch: x86_64
+            artifact_name: macos-x86_64
+          - os: macos-14
+            arch: arm64
+            artifact_name: macos-arm64
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
       - name: Build wheels with cibuildwheel
         uses: pypa/cibuildwheel@v2.21.3
         env:
+          CIBW_ARCHS: ${{ matrix.arch }}
           CIBW_BEFORE_BUILD_LINUX: yum install -y openssl-devel zlib-devel || apt-get install -y libssl-dev zlib1g-dev
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.artifact_name }}
           path: ./wheelhouse/*.whl
 
   publish:
