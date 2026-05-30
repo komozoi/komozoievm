@@ -194,7 +194,7 @@ Secp256k1Signature Secp256k1PrivateKey::sign(const LongKey<256>& hash, const uin
 }
 
 Secp256k1Signature Secp256k1PrivateKey::sign(const uint8_t* message, int n, const uint256_t& k) const {
-	return sign(keccak256(message, n));
+	return sign(keccak256(message, n), k);
 }
 
 void modReduce256k1FromParts(uint256_t& low, uint64_t high) {

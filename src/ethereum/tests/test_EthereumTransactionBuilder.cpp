@@ -60,10 +60,10 @@ TEST(EthereumTransactionBuilderTest, SignAndExportPayloadStructure1) {
 	ASSERT_GE(result.size(), 67);
 
 	// We don't expect the signature to match.
-	char* expected = formatBinaryDataForHexdump(rawTxHex1, sizeof(rawTxHex1), 16);
+	char* expected = formatBinaryDataForHexdump(rawTxHex1, sizeof(rawTxHex1) - 67, 16);
 
 	int startPos = result.get(0);
-	char* actual = formatBinaryDataForHexdump(&result.get(startPos), result.size() - startPos, 16);
+	char* actual = formatBinaryDataForHexdump(&result.get(startPos), result.size() - 67 - startPos, 16);
 
 	if (strcmp(expected, actual)) {
 		ADD_FAILURE();
