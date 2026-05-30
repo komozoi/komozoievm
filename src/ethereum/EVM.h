@@ -23,21 +23,21 @@
 #include "EVMSimulationContext.h"
 
 
-typedef struct {
+struct evm_execution_outcome_t {
 	uint64_t gasUsed;
 	bool succeeded;
 	const char* message;
-} evm_execution_outcome_t;
+	Bytes returnData;
+};
 
 
 class EVMSimulationOutput {
 public:
-	EVMSimulationOutput(bool success, uint8_t* returnDataPtr, uint16_t returnDataSize, const char* reason)
-		: success(success), returnDataPtr(returnDataPtr), returnDataSize(returnDataSize), reason(reason) {}
+	EVMSimulationOutput(bool success, Bytes returnData, const char* reason)
+		: success(success), returnData(std::move(returnData)), reason(reason) {}
 
 	bool success;
-	uint8_t* returnDataPtr;
-	uint16_t returnDataSize;
+	Bytes returnData;
 	const char* reason;
 };
 

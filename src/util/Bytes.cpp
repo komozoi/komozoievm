@@ -88,10 +88,12 @@ bool Bytes::operator>(const Bytes& other) const {
 }
 
 bool Bytes::operator==(const Bytes& other) const {
+	if (storage == other.storage)
+		return true;
 	if (storage == nullptr || other.storage == nullptr)
 		return false;
-	if (size() == other.size())
-		return true;
+	if (size() != other.size())
+		return false;
 
 	return memcmp(&(*this)[0], &other[0], size()) == 0;
 }

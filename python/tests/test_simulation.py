@@ -99,3 +99,25 @@ class TestTransactionBuilder:
             to=RECIPIENT, nonce=3, gas_limit=21000, value=5, data=b"\x01\x02",
         )
         assert builder.nonce == 3
+
+
+class TestExecution:
+    def test_execute_mutates_chain_and_returns_data(
+            self, funded_chain: evm.MockChain, default_block: evm.BlockInfo) -> None:
+        # PUSH1 0x42 PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
+        # This code returns 32 bytes containing 0x42 at the end.
+        return_42_bytecode: bytes = b"\x60\x42\x60\x00\x52\x60\x20\x60\x00\xf3"
+        mock_addr: str = "0x000000000000000000000000000000000000cccc"
+        funded_chain.set_code(mock_addr, return_42_bytecode)
+
+        engine: evm.EVM = evm.EVM(funded_chain)
+        tx: evm.Transaction = evm.Transaction.call(
+            from_=SENDER, to=mock_addr, data=b"", gas_limit=100_000, value=7,
+        )
+
+        result: evm.SimulationResult = engine.execute(tx, default_block)
+
+        assert result.success is True
+        assert bytes(result.return_data) == b"\x00" * 31 + b"\x42"
+        # Check that state was mutated (value transfer)
+        assert int(funded_chain.get_account_info(mock_addr).balance) == 7

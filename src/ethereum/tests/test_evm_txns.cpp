@@ -43,7 +43,7 @@ tmp_sim_output_t simulate(const char* txHash, uint64_t blockNumber) {
 	if (!transaction.isValid()) {
 		ADD_FAILURE();
 		printf("Unable to get transaction %s\n", txHash);
-		return {nullptr, EVMSimulationOutput(false, nullptr, 0, "Unable to fetch transaction")};
+		return {nullptr, EVMSimulationOutput(false, Bytes(), "Unable to fetch transaction")};
 	}
 
 	block_info_t blockInfo = web3.getBlockInfoByNumber(blockNumber);
@@ -64,7 +64,7 @@ tmp_sim_output_t simulate(const char* txHash, uint64_t blockNumber) {
 	if (out.output.success) {
 		printf("SUCCEEDED (%lu gas used)\n\n", out.context->gasUsed);
 	} else {
-		char* prettyReturnData = formatBinaryDataForHexdump(out.output.returnDataPtr, out.output.returnDataSize);
+		char* prettyReturnData = formatBinaryDataForHexdump(out.output.returnData.data(), out.output.returnData.size());
 		printf("REVERTED %s: %s\n\n", out.output.reason, prettyReturnData);
 		free(prettyReturnData);
 	}

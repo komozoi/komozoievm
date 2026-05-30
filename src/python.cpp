@@ -260,14 +260,14 @@ struct SimulationResult {
 };
 
 SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
-	EVMSimulationOutput out(false, nullptr, 0, nullptr);
+	EVMSimulationOutput out(false, Bytes(), nullptr);
 	{
 		py::gil_scoped_release release;
 		out = evm.simulate(tx, block, nullptr);
 	}
 	SimulationResult result;
 	result.success = out.success;
-	result.returnData = py::bytes(reinterpret_cast<const char*>(out.returnDataPtr), out.returnDataSize);
+	result.returnData = bytesToPy(out.returnData);
 	result.reason = out.reason ? std::string(out.reason) : std::string();
 	result.gasUsed = 0;
 	return result;
@@ -281,7 +281,7 @@ SimulationResult runExecute(EVM& evm, const EthereumTransaction& tx, const block
 	}
 	SimulationResult result;
 	result.success = out.succeeded;
-	result.returnData = py::bytes();
+	result.returnData = bytesToPy(out.returnData);
 	result.reason = out.message ? std::string(out.message) : std::string();
 	result.gasUsed = out.gasUsed;
 	return result;

@@ -1070,7 +1070,7 @@ EVMSimulationOutput EVM::simulate(EVMSimulationContext& context) {
 
 	tick_outcome_t output = runEVMRaw(context);
 
-	return EVMSimulationOutput(output.success, output.returnDataPtr, output.returnDataSize, output.message);
+	return EVMSimulationOutput(output.success, Bytes(output.returnDataPtr, output.returnDataSize), output.message);
 }
 
 
@@ -1084,9 +1084,9 @@ EVMSimulationOutput EVM::simulate(const EthereumTransaction& transaction, const 
 	context.gasUsed = getInitialGasCost(transaction.calldata());
 	context.tracer = tracer;
 
-	tick_outcome_t output = runEVMRaw(context, false);
+	tick_outcome_t output = runEVMRaw(context, true);
 
-	return EVMSimulationOutput(output.success, output.returnDataPtr, output.returnDataSize, output.message);
+	return EVMSimulationOutput(output.success, Bytes(output.returnDataPtr, output.returnDataSize), output.message);
 }
 
 
@@ -1097,10 +1097,10 @@ evm_execution_outcome_t EVM::execute(const EthereumTransaction& transaction, con
 	EVMSimulationContext context(chain, txInfo, transaction);
 	context.gasUsed = getInitialGasCost(transaction.calldata());
 
-	tick_outcome_t output = runEVMRaw(context, false);
+	tick_outcome_t output = runEVMRaw(context, true);
 
 	if (output.success)
 		context.writeChangesTo(chain);
 
-	return {context.gasUsed, output.success, output.message};
+	return {context.gasUsed, output.success, output.message, Bytes(output.returnDataPtr, output.returnDataSize)};
 }

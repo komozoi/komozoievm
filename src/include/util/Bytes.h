@@ -77,6 +77,14 @@ public:
 		return (bool)storage;
 	}
 
+	inline uint8_t* data() {
+		return storage ? (uint8_t*)&storage[1] : nullptr;
+	}
+
+	inline const uint8_t* data() const {
+		return storage ? (const uint8_t*)&storage[1] : nullptr;
+	}
+
 	size_t size() const {
 		return storage ? storage->length : 0;
 	}
