@@ -44,12 +44,6 @@ jobs:
           - os: ubuntu-latest
             arch: aarch64
             artifact_name: linux-aarch64
-          - os: macos-13
-            arch: x86_64
-            artifact_name: macos-x86_64
-          - os: macos-14
-            arch: arm64
-            artifact_name: macos-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +56,14 @@ jobs:
         uses: pypa/cibuildwheel@v2.21.3
         env:
           CIBW_ARCHS: ${{ matrix.arch }}
-          CIBW_BEFORE_BUILD_LINUX: yum install -y openssl-devel zlib-devel || apt-get install -y libssl-dev zlib1g-dev
+          CIBW_BEFORE_BUILD_LINUX: >
+            if [ -f /etc/alpine-release ]; then
+              apk add --no-cache openssl-dev zlib-dev;
+            elif command -v yum; then
+              yum install -y openssl-devel zlib-devel;
+            elif command -v apt-get; then
+              apt-get update && apt-get install -y libssl-dev zlib1g-dev;
+            fi
 
       - uses: actions/upload-artifact@v4
         with:

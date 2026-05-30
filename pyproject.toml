@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS",
     "Programming Language :: C++",
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Libraries",
@@ -32,7 +31,6 @@ minimum-version = "0.8"
 cmake.version = ">=3.18"
 cmake.build-type = "Release"
 wheel.packages = ["python/komozoievm"]
-wheel.expand-macos-universal-tags = true
 sdist.include = ["src", "python", "docs/python", "CMakeLists.txt", "cmake", "LICENSE"]
 
 [tool.scikit-build.cmake.define]
@@ -48,6 +46,3 @@ build-verbosity = 1
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64", "aarch64"]
-
-[tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]

@@ -2,13 +2,13 @@
 
 ## Python Wheels
 
-Komozoi EVM is published to PyPI as binary wheels for multiple architectures (x86_64 and aarch64) on Linux and macOS.
+Komozoi EVM is published to PyPI as binary wheels for multiple architectures (x86_64 and aarch64) on Linux. macOS support is currently disabled.
 
 The release process is automated via GitHub Actions in `.github/workflows/release-pypi.yml`.
 
 ### Multi-architecture builds
 
-To build `aarch64` wheels on `x86_64` GitHub Actions runners, we use `cibuildwheel` which requires QEMU emulation for Linux.  The workflow is optimized to run builds for different architectures and operating systems in parallel across multiple jobs.
+To build `aarch64` wheels on `x86_64` GitHub Actions runners, we use `cibuildwheel` which requires QEMU emulation for Linux.  The workflow is optimized to run builds for different architectures in parallel across multiple jobs.
 
 The Linux aarch64 job must include the `docker/setup-qemu-action` step before running `cibuildwheel`:
 
