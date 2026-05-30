@@ -77,8 +77,14 @@ uint256_t u256FromPy(const py::object& obj) {
 		py::int_ pyInt = obj.cast<py::int_>();
 		PyObject* asLong = pyInt.ptr();
 		uint8_t buffer[32] = {0};
+#if PY_VERSION_HEX >= 0x030D0000
+		// Python 3.13 added a trailing `with_exceptions` parameter.
+		int rc = _PyLong_AsByteArray(reinterpret_cast<PyLongObject*>(asLong),
+			buffer, sizeof(buffer), 1, 0, 1);
+#else
 		int rc = _PyLong_AsByteArray(reinterpret_cast<PyLongObject*>(asLong),
 			buffer, sizeof(buffer), 1, 0);
+#endif
 		if (rc != 0)
 			throw py::value_error("integer does not fit in uint256");
 		return uint256_t(buffer, 32, false);
