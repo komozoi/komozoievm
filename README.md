@@ -101,6 +101,9 @@ print(result.success, result.return_data.hex())
 ```
 
 The full Python API reference lives in [`docs/python/README.md`](docs/python/README.md).
+Runnable examples — including a script that forks mainnet state from Infura
+and simulates a transaction on top of it — are in
+[`examples/python/`](examples/python/README.md).
 
 ## Contributing
 

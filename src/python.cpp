@@ -185,6 +185,16 @@ public:
 		code.put(addr, runcode);
 	}
 
+	void setStorageSlot(const EthereumAddress& addr, const LongKey<256>& slot, const uint256_t& value) {
+		HashMap<LongKey<256>, uint256_t>** existing = storage.getPtr(addr);
+		HashMap<LongKey<256>, uint256_t>* slots = existing ? *existing : nullptr;
+		if (!slots) {
+			slots = new HashMap<LongKey<256>, uint256_t>(16);
+			storage.put(addr, slots);
+		}
+		slots->put(slot, value);
+	}
+
 private:
 	HashMap<EthereumAddress, EthereumAccountInfo> accounts;
 	HashMap<EthereumAddress, Bytes> code;
@@ -238,7 +248,11 @@ struct SimulationResult {
 };
 
 SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
-	EVMSimulationOutput out = evm.simulate(tx, block, nullptr);
+	EVMSimulationOutput out(false, nullptr, 0, nullptr);
+	{
+		py::gil_scoped_release release;
+		out = evm.simulate(tx, block, nullptr);
+	}
 	SimulationResult result;
 	result.success = out.success;
 	result.returnData = py::bytes(reinterpret_cast<const char*>(out.returnDataPtr), out.returnDataSize);
@@ -248,7 +262,11 @@ SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const bloc
 }
 
 SimulationResult runExecute(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
-	evm_execution_outcome_t out = evm.execute(tx, block);
+	evm_execution_outcome_t out;
+	{
+		py::gil_scoped_release release;
+		out = evm.execute(tx, block);
+	}
 	SimulationResult result;
 	result.success = out.succeeded;
 	result.returnData = py::bytes();
@@ -356,6 +374,36 @@ PYBIND11_MODULE(_komozoievm, m) {
 			py::arg("storage_keys") = std::vector<py::object>());
 
 	py::class_<EthereumTransaction>(m, "Transaction")
+		// Construct an unsigned transaction suitable for simulation only.  The
+		// signature is zeroed, the sender is taken directly from the caller,
+		// and the hash is left at zero since `EVM.simulate` doesn't inspect it.
+		.def_static("call", [](const py::object& from, const py::object& to, const py::object& data,
+				uint64_t nonce, uint32_t gasLimit, uint64_t value, uint64_t maxFeePerGas,
+				uint64_t maxPriorityFeePerGas) {
+			ArrayList<uint8_t> input;
+			if (!data.is_none()) {
+				py::buffer buf = data.cast<py::buffer>();
+				py::buffer_info info = buf.request();
+				const uint8_t* bytes = static_cast<const uint8_t*>(info.ptr);
+				for (ssize_t i = 0; i < info.size; ++i)
+					input.add(bytes[i]);
+			}
+			tx_signature_t sig{};
+			tx_gas_info_t gas{gasLimit, 0, maxFeePerGas, maxPriorityFeePerGas};
+			EthereumTxHash hash;
+			uint8_t zero[32] = {0};
+			hash = EthereumTxHash(zero, 32);
+			return EthereumTransaction(hash, addressFromPy(from), addressFromPy(to),
+				sig, gas, input, nonce, TRANSACTION_TYPE_EIP1559, value);
+		},
+			py::arg("from_"),
+			py::arg("to"),
+			py::arg("data") = py::none(),
+			py::arg("nonce") = 0,
+			py::arg("gas_limit") = 1000000,
+			py::arg("value") = 0,
+			py::arg("max_fee_per_gas") = 0,
+			py::arg("max_priority_fee_per_gas") = 0)
 		.def_property_readonly("hash", [](const EthereumTransaction& t) {
 			char buffer[80];
 			t.hash().toStr(buffer, true, true);
@@ -421,14 +469,17 @@ PYBIND11_MODULE(_komozoievm, m) {
 		}, py::arg("address"), py::arg("balance"))
 		.def("set_code", [](MockChain& self, const py::object& addr, const py::object& code) {
 			self.setCode(addressFromPy(addr), bytesFromPy(code));
-		}, py::arg("address"), py::arg("code"));
+		}, py::arg("address"), py::arg("code"))
+		.def("set_storage", [](MockChain& self, const py::object& addr, const py::object& slot, const py::object& value) {
+			uint256_t slotKey = u256FromPy(slot);
+			self.setStorageSlot(addressFromPy(addr),
+				*reinterpret_cast<LongKey<256>*>(&slotKey), u256FromPy(value));
+		}, py::arg("address"), py::arg("slot"), py::arg("value"));
 
 	py::class_<EVM>(m, "EVM")
 		.def(py::init<StateProvider&>(), py::arg("chain"), py::keep_alive<1, 2>())
-		.def("simulate", &runSimulate, py::arg("transaction"), py::arg("block"),
-			py::call_guard<py::gil_scoped_release>())
-		.def("execute", &runExecute, py::arg("transaction"), py::arg("block"),
-			py::call_guard<py::gil_scoped_release>())
+		.def("simulate", &runSimulate, py::arg("transaction"), py::arg("block"))
+		.def("execute", &runExecute, py::arg("transaction"), py::arg("block"))
 		.def_static("initial_gas_cost", [](const py::object& data) {
 			py::buffer buf = data.cast<py::buffer>();
 			py::buffer_info info = buf.request();
