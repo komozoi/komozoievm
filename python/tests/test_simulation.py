@@ -100,6 +100,45 @@ class TestTransactionBuilder:
         )
         assert builder.nonce == 3
 
+    def test_builder_build(self) -> None:
+        builder = evm.TransactionBuilder(
+            to=RECIPIENT,
+            nonce=1,
+            gas_limit=100000,
+            value=123
+        )
+        tx = builder.build(from_=SENDER)
+        assert tx.nonce == 1
+        assert tx.gas_limit == 100000
+        assert int(tx.value) == 123
+        assert str(tx.sender).lower() == SENDER.lower()
+        assert str(tx.recipient).lower() == RECIPIENT.lower()
+
+    def test_builder_sign_and_encode(self) -> None:
+        builder = evm.TransactionBuilder(
+            to=RECIPIENT,
+            nonce=1,
+            gas_limit=21000,
+            value=10**18
+        )
+        # A random private key
+        priv_key = bytes.fromhex("4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318")
+        encoded = builder.sign_and_encode(priv_key)
+        assert len(encoded) > 0
+        assert isinstance(encoded, bytes)
+
+    def test_evm_simulate_with_builder(
+            self, funded_chain: evm.MockChain, default_block: evm.BlockInfo) -> None:
+        builder = evm.TransactionBuilder(
+            to=RECIPIENT,
+            nonce=0,
+            gas_limit=21000,
+            value=0
+        )
+        engine = evm.EVM(funded_chain)
+        result = engine.simulate(builder, default_block)
+        assert result.success is True
+
 
 class TestExecution:
     def test_execute_mutates_chain_and_returns_data(

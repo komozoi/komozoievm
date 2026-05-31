@@ -94,15 +94,13 @@ def main() -> int:
 		chain_id=1,
 	)
 
-	tx: evm.Transaction = evm.Transaction.call(
-		from_=CALLER_ADDRESS,
-		to=WETH9_ADDRESS,
+	result: evm.SimulationResult = chain.simulate(
+		WETH9_ADDRESS,
+		CALLER_ADDRESS,
 		data=NAME_SELECTOR,
-		gas_limit=1_000_000,
+		block=block,
+		gas=1_000_000,
 	)
-
-	engine: evm.EVM = evm.EVM(chain)
-	result: evm.SimulationResult = engine.simulate(tx, block)
 
 	if not result.success:
 		raise RuntimeError("Simulation failed: %s" % (result.reason or "<no reason>"))

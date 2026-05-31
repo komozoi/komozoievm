@@ -200,14 +200,10 @@ Bytes EVMSimulationContext::getContractCode(const EthereumAddress& address) {
 	Bytes* code = runcodes.getPtr(address);
 
 	if (!code) {
+		// Missing code at an address is a normal condition (EOA).  The
+		// caller decides how to interpret an empty Bytes result.
 		warmAccount(address);
-		Bytes codeL = chain.getContractCode(address);
-		if (!codeL) {
-			char buf[128];
-			address.toStr(buf);
-			printf("Error getting contract bytecode for %s\n", buf);
-		}
-		return runcodes.put(address, std::move(codeL));
+		return runcodes.put(address, chain.getContractCode(address));
 	}
 
 	return *code;

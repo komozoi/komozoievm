@@ -190,21 +190,14 @@ def main() -> int:
 
 	whale_info: evm.AccountInfo = provider.get_account_info(whale)
 
-	builder: evm.TransactionBuilder = evm.TransactionBuilder(
-		to=recipient,
-		nonce=whale_info.next_nonce,
-		gas_limit=21000,
+	# The high-level call API hides transaction construction behind kwargs.
+	result: evm.SimulationResult = provider.simulate(
+		recipient,
+		whale,
 		value=1,
-		max_fee_per_gas=block.base_fee * 2 + 1,
-		max_priority_fee_per_gas=1,
+		block=block,
+		gas=21000,
 	)
-	# The bindings currently accept a built transaction object only after the
-	# native builder finalizes it; for a value transfer the calldata is empty
-	# and the builder can be passed straight through.  Adapt as needed when
-	# additional transaction helpers land.
-
-	engine: evm.EVM = evm.EVM(provider)
-	result: evm.SimulationResult = engine.simulate(builder, block)
 
 	print("Forked block:", block.number)
 	print("Whale balance:", whale_info.balance)

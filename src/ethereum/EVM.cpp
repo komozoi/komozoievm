@@ -349,7 +349,7 @@ static tick_outcome_t generateStaticCall(EVMSimulationContext& context) {
 
 static tick_outcome_t tickEVMRaw(Bytes code, EVMSimulationContext& context) {
 	if ((uint32_t)code.size() <= context.pc)
-		return EXEC_OUTCOME_INVALID_JUMP;
+		return EXEC_OUTCOME_RETURN(context.memory.getMemory(), 0);
 	uint8_t opcode = code.get(context.pc++);
 
 	uint256_t a, b, N;
@@ -1022,10 +1022,9 @@ static tick_outcome_t runEVMRaw(EVMSimulationContext& context, bool payAccounts)
 	}
 
 	if (!context.runcode) {
-		char buf[64];
-		context.address.toStr(buf, true);
-		printf("Warning: unknown bytecode for %s\n", buf);
-		return EXEC_OUTCOME_OUT_OF_GAS;
+		// No code at the destination: treat as an EOA call.  Value (if any)
+		// has already been transferred above; nothing else to do.
+		return EXEC_OUTCOME_SUCCESS;
 	} else if (context.runcode.size() > 22 && context.runcode.get(0) == 0xef) {
 		context.runcode = context.getContractCode(EthereumAddress(&context.runcode.get(3), true));
 	}
@@ -1090,12 +1089,13 @@ EVMSimulationOutput EVM::simulate(const EthereumTransaction& transaction, const 
 }
 
 
-evm_execution_outcome_t EVM::execute(const EthereumTransaction& transaction, const block_info_t& blockInfo) {
+evm_execution_outcome_t EVM::execute(const EthereumTransaction& transaction, const block_info_t& blockInfo, EVMTracer* tracer) {
 	sim_tx_info_t txInfo{transaction.gasInfo(), blockInfo, blockInfo.number - 1};
 	txInfo.gas.gasLimit += EXTRA_GAS;
 
 	EVMSimulationContext context(chain, txInfo, transaction);
 	context.gasUsed = getInitialGasCost(transaction.calldata());
+	context.tracer = tracer;
 
 	tick_outcome_t output = runEVMRaw(context, true);
 

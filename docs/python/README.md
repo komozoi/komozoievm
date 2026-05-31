@@ -24,22 +24,22 @@ pip install .
 ```python
 import komozoievm as evm
 
-# An in-memory chain populated by Python code.
+src = "0x0000000000000000000000000000000000000001"
+dst = "0x0000000000000000000000000000000000000002"
+
+# An in-memory chain populated by Python code.  Addresses must be valid
+# 20-byte hex strings; malformed values raise ``ValueError``.
 chain = evm.MockChain()
-chain.set_balance("0xabcd...01", 10 * 10**18)
-chain.set_code("0xabcd...02", bytes.fromhex("6001600101"))
+chain.set_balance(src, 10 * 10**18)
+chain.set_code(dst, bytes.fromhex("6001600101"))
 
-# Build a transaction and run it through the EVM.
-tx = evm.TransactionBuilder(
-    to="0xabcd...02",
-    nonce=0,
-    gas_limit=100_000,
-).build()
-
+# Simulate a call without mutating state.
 block = evm.BlockInfo(number=1, timestamp=1_700_000_000, base_fee=10)
-result = evm.EVM(chain).simulate(tx, block)
-
+result = chain.simulate(dst, src, b"", 0, block)
 print(result.success, result.return_data.hex())
+
+# ``execute`` performs the same call but commits the resulting state.
+result = chain.execute(dst, src, value=1_000_000_000_000_000_000)
 ```
 
 ## Module layout
@@ -54,7 +54,6 @@ subject to change.
 |-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Address`   | 20-byte Ethereum address.  Accepts `bytes`, `bytearray`, hex `str` (with or without `0x`), `None`, or another `Address`.  `str(address)` returns the EIP-55 checksum form. |
 | `U256`      | 256-bit unsigned integer.  Implicitly converts from Python `int`; values out of range raise `OverflowError`.                                                               |
-| `Bytes`     | Immutable byte buffer.  Interoperable with Python `bytes`/`bytearray`, or `None`.                                                                                          |
 
 `Address` and `U256` are thin wrappers; functions that accept them also accept
 the plain Python equivalents (`bytes`, `str`, `int`).
@@ -66,7 +65,14 @@ the plain Python equivalents (`bytes`, `str`, `int`).
 - `AccountInfo(address, balance=0, next_nonce=0)` — minimal account state.
 - `AccessListEntry(address, storage_keys=())`.
 - `SimulationResult` with attributes: `success: bool`, `return_data: bytes`,
-  `reason: str | None`, `gas_used: int`.
+  `reason: str`, `gas_used: int`.
+- `CallTrace` — an aggregating tracer that records every contract call
+  performed during a transaction.  Pass an instance as ``trace=`` to
+  ``simulate``/``execute``; the captured entries are available on the
+  ``calls`` attribute.
+- `CallTraceEntry` with attributes: `src: Address`, `dst: Address`,
+  `calldata: bytes`, `returndata: bytes`, `gas_used: int`, `success: bool`.
+- `EventTrace` with attributes: `src: Address`, `topics: list[int]`, `data: bytes`.
 
 ### Transaction construction
 
@@ -82,6 +88,18 @@ tx = evm.TransactionBuilder(
     data=b"",
     access_list=[],
 ).build()
+```
+
+For common contract calls, you can use the `Transaction.call` helper:
+
+```python
+tx = evm.Transaction.call(
+    from_=address,
+    to=address,
+    value=0,
+    data=b"",
+    gas_limit=100_000
+)
 ```
 
 For signed transactions, pass a 32-byte private key:
@@ -109,25 +127,63 @@ the examples in this document use.
 
 ### Running the EVM
 
+The high-level entry points on any `StateProvider` (including `MockChain`)
+hide transaction construction behind keyword arguments:
+
 ```python
-machine = evm.EVM(chain)
-result = machine.simulate(tx, block_info)
-result = machine.execute(tx, block_info)   # like simulate, but commits state
+result = chain.simulate(dst, src, data=b"", value=0, block=None,
+    gas=3_000_000, trace=None)
+result = chain.execute(dst, src, data=b"", value=0, block=None,
+    gas=3_000_000, trace=None)
 gas = evm.EVM.initial_gas_cost(calldata)
 ```
+
+All arguments after `src` are optional.  `block` defaults to a sensible
+context; `value` and `gas` accept either `int` or `float` (e.g. `1e18`
+for one ETH, `1.5e6` for 1.5M gas) — floats are rounded to the nearest
+integer for `gas` and truncated toward zero for `value`.  `data` defaults
+to empty calldata, and `gas` defaults to 3,000,000.
+
+If `dst` has no contract code installed it is treated as an Externally
+Owned Account: the call succeeds immediately after any value transfer,
+without executing any bytecode.  Installing code via `set_code` turns
+the address into a contract from that point on.
 
 `simulate` does not mutate the underlying provider.  `execute` writes the
 resulting state back through the provider's `update_*` callbacks.
 
-### Tracing
-
-A trace callback can be registered to inspect each opcode:
+For lower-level control you can build a `Transaction` (or
+`TransactionBuilder`) explicitly and run it through the `EVM` class:
 
 ```python
-def on_step(ctx):
-    print(ctx.pc, ctx.opcode, ctx.gas_remaining)
+machine = evm.EVM(chain)
+tx = evm.Transaction.call(from_=src, to=dst, data=b"", gas_limit=100_000)
+result = machine.simulate(tx, block_info, tracer=None)
+```
 
-machine.simulate(tx, block_info, tracer=on_step)
+### Tracing
+
+The simplest way to capture every contract call made by a transaction is
+`evm.CallTrace`:
+
+```python
+trace = evm.CallTrace()
+chain.execute(dst, src, trace=trace)
+for entry in trace.calls:
+    print(entry.src, "->", entry.dst, entry.success)
+```
+
+For custom logic, subclass `evm.Tracer` and override the callbacks:
+
+```python
+class MyTracer(evm.Tracer):
+    def on_contract_call(self, chain, call_trace):
+        print(f"Call from {call_trace.src} to {call_trace.dst}")
+
+    def on_event_log(self, chain, event_trace):
+        print(f"Log from {event_trace.src} with {len(event_trace.topics)} topics")
+
+chain.execute(dst, src, trace=MyTracer())
 ```
 
 ## Threading and memory

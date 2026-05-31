@@ -89,28 +89,6 @@ class TestU256:
         assert "42" in repr(evm.U256(42))
 
 
-class TestBytes:
-    def test_empty(self) -> None:
-        b: evm.Bytes = evm.Bytes(b"")
-        assert len(b) == 0
-        assert bytes(b) == b""
-
-    def test_from_none(self) -> None:
-        b: evm.Bytes = evm.Bytes(None)
-        assert len(b) == 0
-        assert bytes(b) == b""
-
-    def test_round_trip(self) -> None:
-        payload: bytes = b"\x00\x01\xfe\xff" * 8
-        b: evm.Bytes = evm.Bytes(payload)
-        assert len(b) == len(payload)
-        assert bytes(b) == payload
-
-    def test_accepts_bytearray(self) -> None:
-        b: evm.Bytes = evm.Bytes(bytearray(b"abc"))
-        assert bytes(b) == b"abc"
-
-
 class TestBlockInfo:
     def test_defaults(self) -> None:
         block: evm.BlockInfo = evm.BlockInfo()

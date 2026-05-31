@@ -99,7 +99,7 @@ public:
 
 	uint256_t balance;
 	const EthereumAddress address;
-	uint64_t nextNonce;
+	uint64_t nextNonce = 0;
 	const bool isValid = true;
 };
 

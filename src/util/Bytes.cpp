@@ -65,7 +65,8 @@ Bytes& Bytes::operator=(const Bytes& other) {
 		(*storage)--;
 
 	storage = other.storage;
-	storage->refs.fetch_add(1);
+	if (storage)
+		storage->refs.fetch_add(1);
 
 	return *this;
 }

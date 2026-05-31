@@ -25,7 +25,7 @@ Please report issues if you find them.
 - Pluggable `StateProvider` / `ChainProvider` interface — back the simulator
   with an in-memory mock chain, your own database, or a live RPC endpoint.
 - Ethereum transaction builder and signer (secp256k1).
-- Tracing hooks for per-opcode inspection.
+- Tracing hooks for contract calls and event logs.
 - Built on [libexcessive](https://gitea.com/komozoi/excessive) for allocators,
   containers, hashing, and IO.
 - Python bindings will be published as binary wheels on PyPI.
@@ -86,17 +86,15 @@ A minimal example:
 ```python
 import komozoievm as evm
 
-chain = evm.MockChain()
-chain.set_balance("0x00000000000000000000000000000000000000ab", 10 * 10**18)
+src = "0x00000000000000000000000000000000000000ab"
+dst = "0x00000000000000000000000000000000000000cd"
 
-tx = evm.TransactionBuilder(
-    to="0x00000000000000000000000000000000000000cd",
-    nonce=0,
-    gas_limit=100_000,
-).build()
+chain = evm.MockChain()
+chain.set_balance(src, 10 * 10**18)
+chain.set_code(dst, b"\x00")  # STOP
 
 block = evm.BlockInfo(number=1, timestamp=1_700_000_000, base_fee=10)
-result = evm.EVM(chain).simulate(tx, block)
+result = chain.simulate(dst, src, b"", 0, block)
 print(result.success, result.return_data.hex())
 ```
 

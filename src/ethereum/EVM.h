@@ -55,7 +55,7 @@ public:
 	EVMSimulationOutput simulate(EVMSimulationContext& context);
 	EVMSimulationOutput simulate(const EthereumTransaction& transaction, const block_info_t& blockInfo, EVMTracer* tracer = nullptr);
 
-	evm_execution_outcome_t execute(const EthereumTransaction& transaction, const block_info_t& blockInfo);
+	evm_execution_outcome_t execute(const EthereumTransaction& transaction, const block_info_t& blockInfo, EVMTracer* tracer = nullptr);
 
 	static uint32_t getInitialGasCost(Bytes calldata);
 	static uint32_t getInitialGasCost(const ArrayList<uint8_t>& calldata);

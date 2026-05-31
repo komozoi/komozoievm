@@ -52,10 +52,10 @@ class RecordingProvider(evm.StateProvider):
         balance: int = self._balances.get(key, 0)
         return evm.AccountInfo(address, balance=balance, next_nonce=0)
 
-    def get_contract_code(self, address) -> evm.Bytes:
+    def get_contract_code(self, address) -> bytes:
         key: str = self._key(address)
         self.code_queries.append(key)
-        return evm.Bytes(self._codes.get(key, b""))
+        return self._codes.get(key, b"")
 
 
 class TestPythonStateProvider:

@@ -33,11 +33,41 @@
 #include "ethereum/EthereumTransaction.h"
 #include "ethereum/EthereumTransactionBuilder.h"
 #include "ethereum/EVM.h"
+#include "ethereum/EVMTracer.h"
 #include "ethereum/EVMSimulationContext.h"
 #include "interface/ChainProvider.h"
 #include "util/Bytes.h"
 
 namespace py = pybind11;
+
+namespace pybind11 { namespace detail {
+	// Automatically convert between the libexcessive Bytes type and Python bytes.
+	template <> struct type_caster<Bytes> {
+	public:
+		PYBIND11_TYPE_CASTER(Bytes, _("bytes"));
+
+		bool load(handle src, bool) {
+			if (!src || src.is_none()) {
+				value = Bytes();
+				return true;
+			}
+			try {
+				py::buffer buf = py::reinterpret_borrow<py::buffer>(src);
+				py::buffer_info info = buf.request();
+				value = Bytes(info.ptr, static_cast<size_t>(info.size));
+				return true;
+			} catch (...) {
+				return false;
+			}
+		}
+
+		static handle cast(const Bytes& src, return_value_policy /* policy */, handle /* parent */) {
+			if (src.size() == 0)
+				return py::bytes().release();
+			return py::bytes(reinterpret_cast<const char*>(src.data()), src.size()).release();
+		}
+	};
+}}
 
 namespace {
 
@@ -52,6 +82,20 @@ EthereumAddress addressFromPy(const py::object& obj) {
 	}
 	if (py::isinstance<py::str>(obj)) {
 		std::string s = obj.cast<std::string>();
+		const char* c_str = s.c_str();
+		if (c_str[0] == '0' && c_str[1] == 'x') {
+			if (s.length() != 42) {
+				throw py::value_error("Ethereum address hex string with 0x prefix must be 42 characters long");
+			}
+			c_str = &c_str[2];
+		} else if (s.length() != 40) {
+			throw py::value_error("Ethereum address hex string without prefix must be 40 characters long");
+		}
+		for (int i = 0; i < 40; i++) {
+			if (parseHexDigit(c_str[i]) == 255) {
+				throw py::value_error("Ethereum address contains invalid hex characters");
+			}
+		}
 		return EthereumAddress(s.c_str());
 	}
 	py::buffer buf = obj.cast<py::buffer>();
@@ -78,6 +122,14 @@ py::bytes addressToBytes(const EthereumAddress& addr) {
 // Convert a Python int (arbitrary precision, but must fit in 256 bits) into a
 // uint256_t.  Negative values are rejected.
 uint256_t u256FromPy(const py::object& obj) {
+	if (py::isinstance<py::float_>(obj)) {
+		// Allow callers to pass floats (e.g. 1e18 wei).  Reject negatives and
+		// non-finite values; otherwise truncate toward zero.
+		double d = obj.cast<double>();
+		if (!(d >= 0.0))
+			throw py::value_error("value must be a non-negative number");
+		return u256FromPy(py::reinterpret_steal<py::object>(PyNumber_Long(obj.ptr())));
+	}
 	if (py::isinstance<py::int_>(obj)) {
 		// Serialize through the Python C API to get raw little-endian bytes.
 		py::int_ pyInt = obj.cast<py::int_>();
@@ -112,12 +164,9 @@ py::int_ u256ToPy(const uint256_t& value) {
 
 // Convert a libexcessive Bytes value into a Python bytes object.
 py::bytes bytesToPy(const Bytes& b) {
-	const size_t length = b.size();
-	std::string scratch;
-	scratch.resize(length);
-	for (size_t i = 0; i < length; ++i)
-		scratch[i] = static_cast<char>(b.get(static_cast<unsigned int>(i)));
-	return py::bytes(scratch.data(), length);
+	if (b.size() == 0)
+		return py::bytes();
+	return py::bytes(reinterpret_cast<const char*>(b.data()), b.size());
 }
 
 // Copy a Python buffer-protocol value into a libexcessive Bytes.
@@ -139,7 +188,7 @@ public:
 		EthereumAccountInfo* found = accounts.getPtr(address);
 		if (found)
 			return *found;
-		return EthereumAccountInfo();
+		return EthereumAccountInfo(address, 0, 0);
 	}
 
 	Bytes getContractCode(const EthereumAddress& address) override {
@@ -219,35 +268,60 @@ public:
 	using StateProvider::StateProvider;
 
 	EthereumAccountInfo getAccountInfo(const EthereumAddress& address, uint64_t blockNumber = 0) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_PURE_NAME(EthereumAccountInfo, StateProvider,
 			"get_account_info", getAccountInfo, address, blockNumber);
 	}
 
 	Bytes getContractCode(const EthereumAddress& address) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_PURE_NAME(Bytes, StateProvider,
 			"get_contract_code", getContractCode, address);
 	}
 
 	ArrayList<uint256_t> getStorageSlots(const EthereumAddress& address,
 			const ArrayList<LongKey<256>>& slotKeys, uint64_t blockNumber = 0) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_PURE_NAME(ArrayList<uint256_t>, StateProvider,
 			"get_storage_slots", getStorageSlots, address, slotKeys, blockNumber);
 	}
 
 	bool updateAccount(const EthereumAddress& key, const EthereumAccountInfo& account) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_NAME(bool, StateProvider,
 			"update_account", updateAccount, key, account);
 	}
 
 	bool saveContractCode(const EthereumAddress& key, Bytes runcode) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_NAME(bool, StateProvider,
 			"save_contract_code", saveContractCode, key, runcode);
 	}
 
 	bool updateStorageSlots(const EthereumAddress& key,
 			const HashMap<LongKey<256>, uint256_t>& entries) override {
+		py::gil_scoped_acquire acquire;
 		PYBIND11_OVERRIDE_NAME(bool, StateProvider,
 			"update_storage_slots", updateStorageSlots, key, entries);
+	}
+};
+
+class PyEVMTracer : public EVMTracer {
+public:
+	using EVMTracer::EVMTracer;
+	void onContractCall(StateProvider& chain, call_trace_t callTrace) override {
+		py::gil_scoped_acquire acquire;
+		auto override = py::get_override(this, "on_contract_call");
+		if (override) {
+			override(py::cast(chain, py::return_value_policy::reference), callTrace);
+		}
+	}
+	void onEventLog(StateProvider& chain, event_trace_t eventTrace) override {
+		py::gil_scoped_acquire acquire;
+		auto override = py::get_override(this, "on_event_log");
+		if (override) {
+			override(py::cast(chain, py::return_value_policy::reference), eventTrace);
+		}
 	}
 };
 
@@ -259,11 +333,11 @@ struct SimulationResult {
 	uint64_t gasUsed;
 };
 
-SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
+SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const block_info_t& block, EVMTracer* tracer) {
 	EVMSimulationOutput out(false, Bytes(), nullptr);
 	{
 		py::gil_scoped_release release;
-		out = evm.simulate(tx, block, nullptr);
+		out = evm.simulate(tx, block, tracer);
 	}
 	SimulationResult result;
 	result.success = out.success;
@@ -273,11 +347,23 @@ SimulationResult runSimulate(EVM& evm, const EthereumTransaction& tx, const bloc
 	return result;
 }
 
-SimulationResult runExecute(EVM& evm, const EthereumTransaction& tx, const block_info_t& block) {
-	evm_execution_outcome_t out;
+SimulationResult runSimulateBuilder(EVM& evm, const EthereumTransactionBuilder& b, const block_info_t& block, EVMTracer* tracer) {
+	ArrayList<uint8_t> input = b.calldata;
+	tx_signature_t sig{};
+	EthereumTxHash hash;
+	uint8_t zero[32] = {0};
+	hash = EthereumTxHash(zero, 32);
+	// Use zero address as sender since builder doesn't have one
+	EthereumTransaction tx(hash, EthereumAddress(), b.dst,
+		sig, b.gasInfo, input, b.nonce, TRANSACTION_TYPE_EIP1559, b.value);
+	return runSimulate(evm, tx, block, tracer);
+}
+
+SimulationResult runExecute(EVM& evm, const EthereumTransaction& tx, const block_info_t& block, EVMTracer* tracer) {
+	evm_execution_outcome_t out = {0, false, nullptr, Bytes()};
 	{
 		py::gil_scoped_release release;
-		out = evm.execute(tx, block);
+		out = evm.execute(tx, block, tracer);
 	}
 	SimulationResult result;
 	result.success = out.succeeded;
@@ -285,6 +371,108 @@ SimulationResult runExecute(EVM& evm, const EthereumTransaction& tx, const block
 	result.reason = out.message ? std::string(out.message) : std::string();
 	result.gasUsed = out.gasUsed;
 	return result;
+}
+
+SimulationResult runExecuteBuilder(EVM& evm, const EthereumTransactionBuilder& b, const block_info_t& block, EVMTracer* tracer) {
+	ArrayList<uint8_t> input = b.calldata;
+	tx_signature_t sig{};
+	EthereumTxHash hash;
+	uint8_t zero[32] = {0};
+	hash = EthereumTxHash(zero, 32);
+	EthereumTransaction tx(hash, EthereumAddress(), b.dst,
+		sig, b.gasInfo, input, b.nonce, TRANSACTION_TYPE_EIP1559, b.value);
+	return runExecute(evm, tx, block, tracer);
+}
+
+SimulationResult runSimulateOnChain(StateProvider& chain, const py::object& tx_obj, const block_info_t& block, EVMTracer* tracer) {
+	EVM evm(chain);
+	if (py::isinstance<EthereumTransaction>(tx_obj)) {
+		return runSimulate(evm, tx_obj.cast<const EthereumTransaction&>(), block, tracer);
+	} else if (py::isinstance<EthereumTransactionBuilder>(tx_obj)) {
+		return runSimulateBuilder(evm, tx_obj.cast<const EthereumTransactionBuilder&>(), block, tracer);
+	}
+	throw py::type_error("Expected Transaction or TransactionBuilder");
+}
+
+SimulationResult runExecuteOnChain(StateProvider& chain, const py::object& tx_obj, const block_info_t& block, EVMTracer* tracer) {
+	EVM evm(chain);
+	if (py::isinstance<EthereumTransaction>(tx_obj)) {
+		return runExecute(evm, tx_obj.cast<const EthereumTransaction&>(), block, tracer);
+	} else if (py::isinstance<EthereumTransactionBuilder>(tx_obj)) {
+		return runExecuteBuilder(evm, tx_obj.cast<const EthereumTransactionBuilder&>(), block, tracer);
+	}
+	throw py::type_error("Expected Transaction or TransactionBuilder");
+}
+
+// Convert a Python int or float into a uint32_t gas limit.  Floats are
+// rounded to the nearest integer; negatives and non-finite values raise.
+uint32_t gasFromPy(const py::object& obj) {
+	if (py::isinstance<py::float_>(obj)) {
+		double d = obj.cast<double>();
+		if (!(d >= 0.0))
+			throw py::value_error("gas must be a non-negative number");
+		double rounded = std::round(d);
+		if (rounded > static_cast<double>(UINT32_MAX))
+			throw py::value_error("gas exceeds uint32 range");
+		return static_cast<uint32_t>(rounded);
+	}
+	if (py::isinstance<py::int_>(obj)) {
+		int64_t v = obj.cast<int64_t>();
+		if (v < 0)
+			throw py::value_error("gas must be non-negative");
+		if (v > static_cast<int64_t>(UINT32_MAX))
+			throw py::value_error("gas exceeds uint32 range");
+		return static_cast<uint32_t>(v);
+	}
+	throw py::type_error("gas must be int or float");
+}
+
+// Build a synthetic transaction from the high-level (dst, src, data, value)
+// arguments exposed on MockChain/StateProvider.
+EthereumTransaction buildCallTransaction(const py::object& dst, const py::object& src,
+		const py::object& data, const py::object& value, uint32_t gasLimit) {
+	ArrayList<uint8_t> input;
+	if (!data.is_none()) {
+		py::buffer buf = data.cast<py::buffer>();
+		py::buffer_info info = buf.request();
+		const uint8_t* bytes = static_cast<const uint8_t*>(info.ptr);
+		for (ssize_t i = 0; i < info.size; ++i)
+			input.add(bytes[i]);
+	}
+	tx_signature_t sig{};
+	tx_gas_info_t gas{gasLimit, 0, 0, 0};
+	uint8_t zero[32] = {0};
+	EthereumTxHash hash(zero, 32);
+	return EthereumTransaction(hash, addressFromPy(src), addressFromPy(dst),
+		sig, gas, input, 0, TRANSACTION_TYPE_EIP1559, u256FromPy(value));
+}
+
+// Default block context used when the caller omits `block`.  Mirrors the
+// conftest `default_block` fixture so simulation succeeds out of the box.
+block_info_t defaultBlock() {
+	block_info_t info{};
+	info.number = 1;
+	info.timestamp = 1700000000;
+	info.baseFee = 0;
+	info.gasLimit = 30000000;
+	info.chainId = 1;
+	return info;
+}
+
+SimulationResult chainSimulateCall(StateProvider& chain, const py::object& dst, const py::object& src,
+		const py::object& data, const py::object& value, const py::object& block, const py::object& gas, EVMTracer* tracer) {
+	EthereumTransaction tx = buildCallTransaction(dst, src, data, value, gasFromPy(gas));
+	block_info_t b = block.is_none() ? defaultBlock() : block.cast<block_info_t>();
+	EVM evm(chain);
+	return runSimulate(evm, tx, b, tracer);
+}
+
+SimulationResult chainExecuteCall(StateProvider& chain, const py::object& dst, const py::object& src,
+		const py::object& data, const py::object& value, const py::object& block, const py::object& gas, EVMTracer* tracer) {
+	EthereumTransaction tx = buildCallTransaction(dst, src, data, value, gasFromPy(gas));
+	block_info_t b = block.is_none() ? defaultBlock() : block.cast<block_info_t>();
+	EVM evm(chain);
+	return runExecute(evm, tx, b, tracer);
 }
 
 } // namespace
@@ -320,15 +508,6 @@ PYBIND11_MODULE(_komozoievm, m) {
 		});
 	py::implicitly_convertible<py::int_, uint256_t>();
 
-	// Bytes is the libexcessive container; we expose it primarily so that
-	// Python code can pass raw `bytes` values to and from the engine.
-	py::class_<Bytes>(m, "Bytes")
-		.def(py::init([](const py::object& src) { return bytesFromPy(src); }), py::arg("value") = py::bytes())
-		.def("__bytes__", &bytesToPy)
-		.def("__len__", [](const Bytes& b) { return b.size(); });
-	py::implicitly_convertible<py::bytes, Bytes>();
-	py::implicitly_convertible<py::bytearray, Bytes>();
-
 	// Block context for simulation.
 	py::class_<block_info_t>(m, "BlockInfo")
 		.def(py::init([](uint64_t number, uint64_t timestamp, uint64_t baseFee, uint64_t gasLimit,
@@ -358,7 +537,14 @@ PYBIND11_MODULE(_komozoievm, m) {
 		.def_readwrite("coinbase", &block_info_t::coinbase)
 		.def_property("randao",
 			[](const block_info_t& b) { return u256ToPy(b.randao); },
-			[](block_info_t& b, const py::object& v) { b.randao = u256FromPy(v); });
+			[](block_info_t& b, const py::object& v) { b.randao = u256FromPy(v); })
+		.def("__repr__", [](const block_info_t& b) {
+			return "BlockInfo(number=" + std::to_string(b.number)
+				+ ", timestamp=" + std::to_string(b.timestamp)
+				+ ", base_fee=" + std::to_string(b.baseFee)
+				+ ", gas_limit=" + std::to_string(b.gasLimit)
+				+ ", chain_id=" + std::to_string(b.chainId) + ")";
+		});
 
 	py::class_<EthereumAccountInfo>(m, "AccountInfo")
 		.def(py::init([](const py::object& address, const py::object& balance, uint64_t nextNonce) {
@@ -371,7 +557,12 @@ PYBIND11_MODULE(_komozoievm, m) {
 		.def_property("balance",
 			[](const EthereumAccountInfo& a) { return u256ToPy(a.balance); },
 			[](EthereumAccountInfo& a, const py::object& v) { a.balance = u256FromPy(v); })
-		.def_readwrite("next_nonce", &EthereumAccountInfo::nextNonce);
+		.def_readwrite("next_nonce", &EthereumAccountInfo::nextNonce)
+		.def("__repr__", [](const EthereumAccountInfo& a) {
+			return "AccountInfo(address='" + addressToHex(a.address)
+				+ "', balance=" + std::string(py::str(u256ToPy(a.balance)))
+				+ ", next_nonce=" + std::to_string(a.nextNonce) + ")";
+		});
 
 	py::class_<EthereumAccessListEntry>(m, "AccessListEntry")
 		.def(py::init([](const py::object& address, const std::vector<py::object>& slots) {
@@ -426,7 +617,15 @@ PYBIND11_MODULE(_komozoievm, m) {
 		.def_property_readonly("nonce", &EthereumTransaction::nonce)
 		.def_property_readonly("gas_limit", &EthereumTransaction::gasLimit)
 		.def_property_readonly("value", [](const EthereumTransaction& t) { return u256ToPy(t.value()); })
-		.def_property_readonly("calldata", [](const EthereumTransaction& t) { return bytesToPy(t.calldata()); });
+		.def_property_readonly("calldata", [](const EthereumTransaction& t) { return bytesToPy(t.calldata()); })
+		.def("__repr__", [](const EthereumTransaction& t) {
+			return "Transaction(sender='" + addressToHex(t.sender())
+				+ "', recipient='" + addressToHex(t.recipient())
+				+ "', nonce=" + std::to_string(t.nonce())
+				+ ", gas_limit=" + std::to_string(t.gasLimit())
+				+ ", value=" + std::string(py::str(u256ToPy(t.value())))
+				+ ", calldata_len=" + std::to_string(t.calldata().size()) + ")";
+		});
 
 	py::class_<EthereumTransactionBuilder>(m, "TransactionBuilder")
 		.def(py::init([](const py::object& to, uint64_t nonce, uint32_t gasLimit, const py::object& value,
@@ -455,13 +654,74 @@ PYBIND11_MODULE(_komozoievm, m) {
 			py::arg("max_priority_fee_per_gas") = 0,
 			py::arg("data") = py::none())
 		.def_readwrite("dst", &EthereumTransactionBuilder::dst)
-		.def_readwrite("nonce", &EthereumTransactionBuilder::nonce);
+		.def_readwrite("nonce", &EthereumTransactionBuilder::nonce)
+		.def("build", [](const EthereumTransactionBuilder& b, const py::object& from) {
+			ArrayList<uint8_t> input = b.calldata;
+			tx_signature_t sig{};
+			EthereumTxHash hash;
+			uint8_t zero[32] = {0};
+			hash = EthereumTxHash(zero, 32);
+			return EthereumTransaction(hash, addressFromPy(from), b.dst,
+				sig, b.gasInfo, input, b.nonce, TRANSACTION_TYPE_EIP1559, b.value);
+		}, py::arg("from_") = py::none())
+		.def("sign_and_encode", [](const EthereumTransactionBuilder& b, const py::object& privateKey) {
+			py::buffer buf = privateKey.cast<py::buffer>();
+			py::buffer_info info = buf.request();
+			if (info.size != 32)
+				throw std::runtime_error("Private key must be 32 bytes");
+			uint256_t sk((const uint8_t*)info.ptr, true);
+			Secp256k1PrivateKey key(sk);
+			ArrayList<uint8_t> encoded = b.signAndExport(key);
+			return py::bytes((const char*)encoded.getMemory(), encoded.size());
+		}, py::arg("private_key"));
 
 	py::class_<SimulationResult>(m, "SimulationResult")
 		.def_readonly("success", &SimulationResult::success)
 		.def_readonly("return_data", &SimulationResult::returnData)
 		.def_readonly("reason", &SimulationResult::reason)
-		.def_readonly("gas_used", &SimulationResult::gasUsed);
+		.def_readonly("gas_used", &SimulationResult::gasUsed)
+		.def("__repr__", [](const SimulationResult& r) {
+			return std::string("SimulationResult(success=") + (r.success ? "True" : "False")
+				+ ", gas_used=" + std::to_string(r.gasUsed)
+				+ ", reason='" + r.reason
+				+ "', return_data_len=" + std::to_string(py::len(r.returnData)) + ")";
+		});
+
+	py::class_<call_trace_t>(m, "CallTraceEntry")
+		.def_readonly("src", &call_trace_t::src)
+		.def_readonly("dst", &call_trace_t::dst)
+		.def_property_readonly("calldata", [](const call_trace_t& t) { return bytesToPy(t.calldata); })
+		.def_property_readonly("returndata", [](const call_trace_t& t) { return bytesToPy(t.returndata); })
+		.def_readonly("gas_used", &call_trace_t::gasUsed)
+		.def_readonly("success", &call_trace_t::success)
+		.def("__repr__", [](const call_trace_t& t) {
+			return "CallTraceEntry(src='" + addressToHex(t.src)
+				+ "', dst='" + addressToHex(t.dst)
+				+ "', gas_used=" + std::to_string(t.gasUsed)
+				+ ", success=" + (t.success ? std::string("True") : std::string("False"))
+				+ ", calldata_len=" + std::to_string(t.calldata.size())
+				+ ", returndata_len=" + std::to_string(t.returndata.size()) + ")";
+		});
+
+	py::class_<event_trace_t>(m, "EventTrace")
+		.def_readonly("src", &event_trace_t::src)
+		.def_property_readonly("topics", [](const event_trace_t& t) {
+			py::list l;
+			for (uint32_t i = 0; i < t.numTopics; ++i)
+				l.append(u256ToPy(t.topics[i]));
+			return l;
+		})
+		.def_property_readonly("data", [](const event_trace_t& t) { return bytesToPy(t.data); })
+		.def("__repr__", [](const event_trace_t& t) {
+			return "EventTrace(src='" + addressToHex(t.src)
+				+ "', num_topics=" + std::to_string(t.numTopics)
+				+ ", data_len=" + std::to_string(t.data.size()) + ")";
+		});
+
+	py::class_<EVMTracer, PyEVMTracer>(m, "Tracer")
+		.def(py::init<>())
+		.def("on_contract_call", &EVMTracer::onContractCall)
+		.def("on_event_log", &EVMTracer::onEventLog);
 
 	py::class_<StateProvider, PyStateProvider>(m, "StateProvider")
 		.def(py::init<>())
@@ -472,7 +732,24 @@ PYBIND11_MODULE(_komozoievm, m) {
 			static_cast<Bytes (StateProvider::*)(const EthereumAddress&)>(&StateProvider::getContractCode),
 			py::arg("address"))
 		.def("update_account", &StateProvider::updateAccount, py::arg("address"), py::arg("info"))
-		.def("save_contract_code", &StateProvider::saveContractCode, py::arg("address"), py::arg("code"));
+		.def("save_contract_code", &StateProvider::saveContractCode, py::arg("address"), py::arg("code"))
+		.def("simulate", &runSimulateOnChain, py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
+		.def("execute", &runExecuteOnChain, py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
+		// High-level call API: no transaction-building required on the Python side.
+		.def("simulate", &chainSimulateCall,
+			py::arg("dst"), py::arg("src"),
+			py::arg("data") = py::bytes(),
+			py::arg("value") = py::int_(0),
+			py::arg("block") = py::none(),
+			py::arg("gas") = py::int_(3000000),
+			py::arg("trace") = py::none())
+		.def("execute", &chainExecuteCall,
+			py::arg("dst"), py::arg("src"),
+			py::arg("data") = py::bytes(),
+			py::arg("value") = py::int_(0),
+			py::arg("block") = py::none(),
+			py::arg("gas") = py::int_(3000000),
+			py::arg("trace") = py::none());
 
 	py::class_<MockChain, StateProvider>(m, "MockChain")
 		.def(py::init<>())
@@ -490,12 +767,12 @@ PYBIND11_MODULE(_komozoievm, m) {
 
 	py::class_<EVM>(m, "EVM")
 		.def(py::init<StateProvider&>(), py::arg("chain"), py::keep_alive<1, 2>())
-		.def("simulate", &runSimulate, py::arg("transaction"), py::arg("block"))
-		.def("execute", &runExecute, py::arg("transaction"), py::arg("block"))
+		.def("simulate", static_cast<SimulationResult (*)(EVM&, const EthereumTransaction&, const block_info_t&, EVMTracer*)>(&runSimulate), py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
+		.def("simulate", static_cast<SimulationResult (*)(EVM&, const EthereumTransactionBuilder&, const block_info_t&, EVMTracer*)>(&runSimulateBuilder), py::arg("builder"), py::arg("block"), py::arg("tracer") = py::none())
+		.def("execute", static_cast<SimulationResult (*)(EVM&, const EthereumTransaction&, const block_info_t&, EVMTracer*)>(&runExecute), py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
+		.def("execute", static_cast<SimulationResult (*)(EVM&, const EthereumTransactionBuilder&, const block_info_t&, EVMTracer*)>(&runExecuteBuilder), py::arg("builder"), py::arg("block"), py::arg("tracer") = py::none())
 		.def_static("initial_gas_cost", [](const py::object& data) {
-			py::buffer buf = data.cast<py::buffer>();
-			py::buffer_info info = buf.request();
-			return EVM::getInitialGasCost(Bytes(info.ptr, static_cast<size_t>(info.size)));
+			return EVM::getInitialGasCost(bytesFromPy(data));
 		}, py::arg("calldata"));
 }
 

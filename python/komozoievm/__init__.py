@@ -27,28 +27,60 @@ from ._komozoievm import (  # noqa: F401
     AccountInfo,
     AccessListEntry,
     BlockInfo,
-    Bytes,
     EVM,
     MockChain,
     SimulationResult,
     StateProvider,
     Transaction,
     TransactionBuilder,
+    Tracer,
+    CallTraceEntry,
+    EventTrace,
     U256,
 )
+
+
+class CallTrace(Tracer):
+    """Aggregating tracer that collects every contract call into a list.
+
+    Pass an instance as ``trace=`` to :meth:`MockChain.simulate` or
+    :meth:`MockChain.execute` to record the call hierarchy executed by the
+    transaction.  The captured entries are available via the ``calls``
+    attribute as a flat list, ordered by the EVM call order.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list = []
+
+    def on_contract_call(self, chain, call_trace) -> None:  # noqa: D401
+        self.calls.append(call_trace)
+
+    def __iter__(self):
+        return iter(self.calls)
+
+    def __len__(self) -> int:
+        return len(self.calls)
+
+    def __repr__(self) -> str:
+        return "CallTrace(calls=%d)" % len(self.calls)
+
 
 __all__ = [
     "Address",
     "AccountInfo",
     "AccessListEntry",
     "BlockInfo",
-    "Bytes",
     "EVM",
     "MockChain",
     "SimulationResult",
     "StateProvider",
     "Transaction",
     "TransactionBuilder",
+    "Tracer",
+    "CallTrace",
+    "CallTraceEntry",
+    "EventTrace",
     "U256",
     "__version__",
 ]

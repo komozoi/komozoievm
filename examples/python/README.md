@@ -27,6 +27,26 @@ WETH9 (`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`), fetched once via
 `scripts/fetch_bytecode.py` in the `coconut-voter` project for a similar
 scraper-style approach against block explorers.
 
+## `tracing_example.py`
+
+End-to-end walk-through of the tracing API.  Runs three scenarios against
+an in-memory `MockChain`:
+
+1. A successful nested CALL, captured with the built-in `evm.CallTrace`
+   aggregator.
+2. The same outer contract pointed at an inner contract that REVERTs,
+   showing how to read a failing entry from the trace.
+3. A custom `evm.Tracer` subclass that streams both contract calls and
+   event logs as they happen.
+
+### Running
+
+```bash
+python tracing_example.py
+```
+
+No environment variables, no dependencies beyond `komozoievm` itself.
+
 ## `infura_fork_simulation.py`
 
 Forks live Ethereum mainnet state from an Infura (or any JSON-RPC) endpoint and
@@ -64,9 +84,9 @@ node by editing the `url` line in `main()`.
 ### Extending
 
 - Swap the demo transaction in `main()` for your own — for example a contract
-  call by setting `data=` on the `TransactionBuilder`.
+  call by passing `data=` to `provider.simulate(...)`.
 - Pre-seed state by calling `provider.update_account(...)` or
-  `provider.update_storage_slots(...)` before invoking `EVM.simulate` to model
-  "what if" scenarios on top of real chain data.
+  `provider.update_storage_slots(...)` before invoking `provider.simulate(...)`
+  to model "what if" scenarios on top of real chain data.
 - Pin `pinned_block` to a historical block number to reproduce a past
   transaction in a deterministic environment.
