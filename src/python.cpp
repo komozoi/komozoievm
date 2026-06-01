@@ -40,6 +40,12 @@
 
 namespace py = pybind11;
 
+// Forward declarations for helper functions used in type casters.
+namespace {
+	py::int_ u256ToPy(const uint256_t& value);
+	uint256_t u256FromPy(const py::object& obj);
+}
+
 namespace pybind11 { namespace detail {
 	// Automatically convert between the libexcessive Bytes type and Python bytes.
 	template <> struct type_caster<Bytes> {
@@ -67,6 +73,27 @@ namespace pybind11 { namespace detail {
 			return py::bytes(reinterpret_cast<const char*>(src.data()), src.size()).release();
 		}
 	};
+
+	// Type caster for 256-bit storage slot keys.  EthereumAddress (LongKey<160>)
+	// must NOT have a custom caster: it is exposed as a pybind11 class_, and
+	// defining a competing caster would recurse infinitely through any helper
+	// that calls obj.cast<EthereumAddress>().
+	template <> struct type_caster<LongKey<256>> {
+	public:
+		PYBIND11_TYPE_CASTER(LongKey<256>, _("int"));
+
+		bool load(handle src, bool) {
+			try {
+				uint256_t u = u256FromPy(py::reinterpret_borrow<py::object>(src));
+				value = *reinterpret_cast<LongKey<256>*>(&u);
+				return true;
+			} catch (...) { return false; }
+		}
+
+		static handle cast(const LongKey<256>& src, return_value_policy /* policy */, handle /* parent */) {
+			return u256ToPy(*reinterpret_cast<const uint256_t*>(&src)).release();
+		}
+	};
 }}
 
 namespace {
@@ -83,7 +110,7 @@ EthereumAddress addressFromPy(const py::object& obj) {
 	if (py::isinstance<py::str>(obj)) {
 		std::string s = obj.cast<std::string>();
 		const char* c_str = s.c_str();
-		if (c_str[0] == '0' && c_str[1] == 'x') {
+		if (s.length() >= 2 && c_str[0] == '0' && c_str[1] == 'x') {
 			if (s.length() != 42) {
 				throw py::value_error("Ethereum address hex string with 0x prefix must be 42 characters long");
 			}
@@ -96,7 +123,7 @@ EthereumAddress addressFromPy(const py::object& obj) {
 				throw py::value_error("Ethereum address contains invalid hex characters");
 			}
 		}
-		return EthereumAddress(s.c_str());
+		return EthereumAddress(c_str);
 	}
 	py::buffer buf = obj.cast<py::buffer>();
 	py::buffer_info info = buf.request();
@@ -279,11 +306,30 @@ public:
 			"get_contract_code", getContractCode, address);
 	}
 
+	// Container-valued overrides cannot use PYBIND11_OVERRIDE_PURE_NAME because
+	// libexcessive's ArrayList/HashMap are not registered with pybind11; convert
+	// to Python list/dict by hand and delegate to the override.  Falls back to
+	// the C++ default behaviour (empty slots / no-op) when no override is set.
 	ArrayList<uint256_t> getStorageSlots(const EthereumAddress& address,
 			const ArrayList<LongKey<256>>& slotKeys, uint64_t blockNumber = 0) override {
 		py::gil_scoped_acquire acquire;
-		PYBIND11_OVERRIDE_PURE_NAME(ArrayList<uint256_t>, StateProvider,
-			"get_storage_slots", getStorageSlots, address, slotKeys, blockNumber);
+		py::function func = py::get_override(this, "get_storage_slots");
+		if (func) {
+			py::list keys_py;
+			for (int i = 0; i < slotKeys.size(); i++) {
+				keys_py.append(u256ToPy(*reinterpret_cast<const uint256_t*>(&slotKeys.get(i))));
+			}
+			py::list res_l = func(address, keys_py, blockNumber).cast<py::list>();
+			ArrayList<uint256_t> out(static_cast<int>(res_l.size()));
+			for (py::handle item : res_l) {
+				out.add(u256FromPy(py::reinterpret_borrow<py::object>(item)));
+			}
+			return out;
+		}
+		ArrayList<uint256_t> out(slotKeys.size());
+		for (int i = 0; i < slotKeys.size(); i++)
+			out.add(uint256_t());
+		return out;
 	}
 
 	bool updateAccount(const EthereumAddress& key, const EthereumAccountInfo& account) override {
@@ -301,8 +347,15 @@ public:
 	bool updateStorageSlots(const EthereumAddress& key,
 			const HashMap<LongKey<256>, uint256_t>& entries) override {
 		py::gil_scoped_acquire acquire;
-		PYBIND11_OVERRIDE_NAME(bool, StateProvider,
-			"update_storage_slots", updateStorageSlots, key, entries);
+		py::function func = py::get_override(this, "update_storage_slots");
+		if (!func) {
+			return false;
+		}
+		py::dict entries_py;
+		for (auto entry : entries) {
+			entries_py[u256ToPy(*reinterpret_cast<const uint256_t*>(&entry.key))] = u256ToPy(entry.value);
+		}
+		return func(key, entries_py).cast<bool>();
 	}
 };
 
@@ -614,6 +667,8 @@ PYBIND11_MODULE(_komozoievm, m) {
 		})
 		.def_property_readonly("sender", [](const EthereumTransaction& t) { return t.sender(); })
 		.def_property_readonly("recipient", [](const EthereumTransaction& t) { return t.recipient(); })
+		.def_property_readonly("from_", [](const EthereumTransaction& t) { return t.sender(); })
+		.def_property_readonly("to", [](const EthereumTransaction& t) { return t.recipient(); })
 		.def_property_readonly("nonce", &EthereumTransaction::nonce)
 		.def_property_readonly("gas_limit", &EthereumTransaction::gasLimit)
 		.def_property_readonly("value", [](const EthereumTransaction& t) { return u256ToPy(t.value()); })
@@ -731,8 +786,29 @@ PYBIND11_MODULE(_komozoievm, m) {
 		.def("get_contract_code",
 			static_cast<Bytes (StateProvider::*)(const EthereumAddress&)>(&StateProvider::getContractCode),
 			py::arg("address"))
+		.def("get_storage_slots", [](StateProvider& self, const EthereumAddress& addr, const py::list& keys, uint64_t block) {
+			ArrayList<LongKey<256>> slotKeys(static_cast<int>(keys.size()));
+			for (auto item : keys) {
+				uint256_t u = u256FromPy(item.cast<py::object>());
+				slotKeys.add(*reinterpret_cast<LongKey<256>*>(&u));
+			}
+			ArrayList<uint256_t> res = self.getStorageSlots(addr, slotKeys, block);
+			py::list out;
+			for (int i = 0; i < res.size(); i++) {
+				out.append(u256ToPy(res.get(i)));
+			}
+			return out;
+		}, py::arg("address"), py::arg("slot_keys"), py::arg("block_number") = 0)
 		.def("update_account", &StateProvider::updateAccount, py::arg("address"), py::arg("info"))
 		.def("save_contract_code", &StateProvider::saveContractCode, py::arg("address"), py::arg("code"))
+		.def("update_storage_slots", [](StateProvider& self, const EthereumAddress& addr, const py::dict& entries) {
+			HashMap<LongKey<256>, uint256_t> entries_map(static_cast<int>(entries.size()));
+			for (auto item : entries) {
+				uint256_t k_u = u256FromPy(item.first.cast<py::object>());
+				entries_map.put(*reinterpret_cast<LongKey<256>*>(&k_u), u256FromPy(item.second.cast<py::object>()));
+			}
+			return self.updateStorageSlots(addr, entries_map);
+		}, py::arg("address"), py::arg("entries"))
 		.def("simulate", &runSimulateOnChain, py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
 		.def("execute", &runExecuteOnChain, py::arg("transaction"), py::arg("block"), py::arg("tracer") = py::none())
 		// High-level call API: no transaction-building required on the Python side.

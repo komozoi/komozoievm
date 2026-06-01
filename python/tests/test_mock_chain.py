@@ -127,6 +127,27 @@ class TestMockChainStorage:
         mock_chain.set_storage(CONTRACT, 0, 0xDEADBEEF)
         mock_chain.set_storage(CONTRACT, 2 ** 200, 1)
 
+    def test_get_storage_slots_returns_set_values(self, mock_chain: evm.MockChain) -> None:
+        # Round-trip through the StateProvider get_storage_slots binding;
+        # exercises the LongKey<256> type caster on both the input list
+        # and the returned uint256_t values.
+        mock_chain.set_storage(CONTRACT, 0, 0xDEADBEEF)
+        mock_chain.set_storage(CONTRACT, 2 ** 200, 1)
+        slots: list = mock_chain.get_storage_slots(CONTRACT, [0, 2 ** 200])
+        assert slots == [0xDEADBEEF, 1]
+
+    def test_get_storage_slots_unset_is_zero(self, mock_chain: evm.MockChain) -> None:
+        # Slots that were never written must read as zero.
+        slots: list = mock_chain.get_storage_slots(CONTRACT, [0, 1, 2 ** 250])
+        assert slots == [0, 0, 0]
+
+    def test_update_storage_slots_dict(self, mock_chain: evm.MockChain) -> None:
+        # Bulk write via update_storage_slots, then read back through the
+        # same binding to confirm both directions of the conversion work.
+        ok: bool = mock_chain.update_storage_slots(CONTRACT, {0: 7, 5: 2 ** 240})
+        assert ok is True
+        assert mock_chain.get_storage_slots(CONTRACT, [0, 5]) == [7, 2 ** 240]
+
 
 class TestMockChainCallAPI:
     """High-level ``simulate``/``execute`` entry points that skip the builder."""

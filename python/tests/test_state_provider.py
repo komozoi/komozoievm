@@ -96,3 +96,41 @@ class TestPythonStateProvider:
         # The engine must have asked our Python provider for the recipient's
         # bytecode at least once during execution.
         assert TARGET[2:] in provider.code_queries
+
+
+class StorageProvider(evm.StateProvider):
+    """Minimal subclass that serves storage slot reads from a Python dict.
+
+    Used to verify that the C++ engine forwards ``get_storage_slots`` calls
+    through the trampoline and that 256-bit slot keys round-trip cleanly via
+    the LongKey<256> type caster.
+    """
+
+    def __init__(self, slots: dict) -> None:
+        super().__init__()
+        self._slots: dict = slots
+        self.last_keys: list = []
+
+    def get_account_info(self, address, block_number: int = 0) -> "evm.AccountInfo":
+        return evm.AccountInfo(address, balance=0, next_nonce=0)
+
+    def get_contract_code(self, address) -> bytes:
+        return b""
+
+    def get_storage_slots(self, address, slot_keys: list, block_number: int = 0) -> list:
+        self.last_keys = list(slot_keys)
+        return [self._slots.get(int(k), 0) for k in slot_keys]
+
+
+class TestPythonStorageOverride:
+    def test_python_get_storage_slots_round_trips(self) -> None:
+        # Calling the Python-bound get_storage_slots on a StateProvider
+        # subclass must dispatch back to the override (via the trampoline)
+        # and preserve full 256-bit slot key values.
+        slots: dict = {0: 0xCAFE, 2 ** 250: 2 ** 200 + 1}
+        provider: StorageProvider = StorageProvider(slots)
+        result: list = provider.get_storage_slots(CALLER, [0, 2 ** 250])
+        assert result == [0xCAFE, 2 ** 200 + 1]
+        # The trampoline must hand the slot keys to Python as ints, not as
+        # truncated 160-bit values or strings.
+        assert provider.last_keys == [0, 2 ** 250]

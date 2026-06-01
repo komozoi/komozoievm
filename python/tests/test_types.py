@@ -125,3 +125,19 @@ class TestAccessListEntry:
         # without raising.  The struct is opaque from Python beyond that.
         entry: evm.AccessListEntry = evm.AccessListEntry(ADDRESS_HEX, [0, 1, 2 ** 250])
         assert entry is not None
+
+
+class TestTransaction:
+    SENDER: str = "0x000000000000000000000000000000000000aaaa"
+    RECIPIENT: str = "0x000000000000000000000000000000000000bbbb"
+
+    def test_from_to_aliases_match_sender_recipient(self) -> None:
+        # The bindings expose the Python-friendly ``from_`` and ``to`` aliases
+        # in addition to the lower-level ``sender``/``recipient`` accessors.
+        tx: evm.Transaction = evm.Transaction.call(
+            from_=self.SENDER, to=self.RECIPIENT, data=b"", gas_limit=100_000, value=0,
+        )
+        assert bytes(tx.from_) == bytes(tx.sender)
+        assert bytes(tx.to) == bytes(tx.recipient)
+        assert bytes(tx.from_) == bytes.fromhex(self.SENDER[2:])
+        assert bytes(tx.to) == bytes.fromhex(self.RECIPIENT[2:])
