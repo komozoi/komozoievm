@@ -72,7 +72,7 @@ cmake --build build --target evm_tests
 Install from PyPI:
 
 ```bash
-pip install komozoievm
+pip install komozoi-evm
 ```
 
 Or build from a source checkout:
