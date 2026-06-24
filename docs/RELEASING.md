@@ -13,7 +13,7 @@ aarch64 builds are currently disabled.  When enabled, they require QEMU emulatio
 ### Triggering a release
 
 A release is triggered by:
-1. Pushing a tag starting with `v` (e.g., `v0.0.1`) to the `main` or `master` branch.
+1. Pushing a tag starting with `v` (e.g., `v0.0.2`) to the `main` or `master` branch.
 2. Manually triggering the "Publish Python release to PyPI" workflow via `workflow_dispatch`.
 
 Note: Publishing to PyPI requires the `pypi` environment to be configured with appropriate trusted publishing permissions.

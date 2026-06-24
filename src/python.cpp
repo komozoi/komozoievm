@@ -533,7 +533,7 @@ SimulationResult chainExecuteCall(StateProvider& chain, const py::object& dst, c
 
 PYBIND11_MODULE(_komozoievm, m) {
 	m.doc() = "Komozoi EVM Python bindings";
-	m.attr("__version__") = "0.1.0";
+	m.attr("__version__") = "0.0.2";
 
 	// Address: a thin wrapper over EthereumAddress with Pythonic conversions.
 	py::class_<EthereumAddress>(m, "Address")
