@@ -3,6 +3,10 @@ project(komozoievm)
 
 include(FetchContent)
 
+# Set compile options early so they propagate to subprojects
+add_compile_options(-Wno-error=pragmas)
+add_definitions(-DLIBUS_NO_SSL)
+
 # Position-independent code is required so the static libraries we build can be
 # linked into the shared Python module.  Set it before any subprojects compile.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -18,12 +22,17 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(excessive)
 
+# Ensure the excessive target also gets the pragma fix if it's a subproject
+if(TARGET excessive)
+    target_compile_options(excessive PRIVATE -Wno-error=pragmas)
+endif()
+
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D LIBUS_NO_SSL -Wall -Wextra -Werror -Wno-error=pragmas -Wno-format -Wno-unused-parameter -Wno-unused-result -O1")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fexec-charset=UTF-8 -fextended-identifiers -finput-charset=UTF-8") # -mavx512f -mavx512dq
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D LIBUS_NO_SSL -Wno-format -Wno-unused-parameter -Wno-unused-result -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -Wno-format -Wno-unused-parameter -Wno-unused-result -O1")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexec-charset=UTF-8 -fextended-identifiers -finput-charset=UTF-8") # -mavx512f -mavx512dq
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-format -Wno-unused-parameter -Wno-unused-result -O3")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 
 include_directories(src)
