@@ -22,9 +22,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://gitea.com/komozoi/komozoievm"
-Documentation = "https://gitea.com/komozoi/komozoievm"
-Issues = "https://gitea.com/komozoi/komozoievm/issues"
+Homepage = "https://github.com/komozoi/komozoievm"
+Documentation = "https://github.com/komozoi/komozoievm"
+Issues = "https://github.com/komozoi/komozoievm/issues"
 
 [tool.scikit-build]
 minimum-version = "0.8"
