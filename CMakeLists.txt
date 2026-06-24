@@ -8,12 +8,12 @@ include(FetchContent)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 FetchContent_Declare(
-        excessive
-        GIT_REPOSITORY https://gitea.com/komozoi/excessive.git
-        GIT_TAG master
-        GIT_SHALLOW TRUE
-        GIT_PROGRESS ON
-        SYSTEM
+    excessive
+    GIT_REPOSITORY https://gitea.com/komozoi/excessive.git
+    GIT_TAG v0.3.1
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS ON
+    SYSTEM
 )
 
 FetchContent_MakeAvailable(excessive)
